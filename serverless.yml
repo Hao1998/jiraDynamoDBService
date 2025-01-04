@@ -1,0 +1,20 @@
+service: critical-issues-processor
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  environment:
+    DYNAMODB_TABLE: critical-issues
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+      Resource: "arn:aws:dynamodb:us-east-1:637423205741:table/critical-issues"
+
+functions:
+  processCriticalIssues:
+    name: jira-dynamoDB-functions
+    handler: index.handler
+    events:
+      - sqs:
+          arn: "arn:aws:sqs:us-east-1:637423205741:jira-critical-issues-queue"

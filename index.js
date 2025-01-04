@@ -5,30 +5,41 @@ const dynamoDB = new AWS.DynamoDB.DocumentClient();
 exports.handler = async (event) => {
     try {
         for (const record of event.Records) {
-            const body = JSON.parse(record.body)
-            const message = JSON.parse(body.Message);
+            // Single parse for SQS message
+            const message = JSON.parse(record.body);
 
-            //Create ISO timestamp for consistent sorting
+            console.log('Parsed message:', message); // For debugging
+
+            // Extract issue key from the content field
+            // Assuming content format: "...Key: TEST-4\nSummary: test t6..."
+            const contentLines = message.content.split('\n');
+            const issueKey = contentLines.find(line => line.startsWith('Key:'))?.split(':')[1]?.trim();
+            const summary = contentLines.find(line => line.startsWith('Summary:'))?.split(':')[1]?.trim();
+            const priority = contentLines.find(line => line.startsWith('Priority:'))?.split(':')[1]?.trim();
+            const creator = contentLines.find(line => line.startsWith('Creator:'))?.split(':')[1]?.trim();
+
             const currentTimestamp = new Date().toISOString();
-            // Prepare item for DynamoDB with composite key
 
             const item = {
-                issueId: message.issueKey,
-                timestamp: currentTimestamp,  // This is now part of the composite key
-                summary: message.summary,
-                priority: message.priority,
-                description: message.description,
-                creator: message.creator,
-                created: message.created,
+                issueId: issueKey,
+                timestamp: currentTimestamp,
+                title: message.title,
+                summary: summary,
+                priority: priority,
+                creator: creator,
+                content: message.content,
                 lastUpdated: currentTimestamp
             };
+
+            // Log the item before saving
+            console.log('DynamoDB item to be saved:', item);
 
             await dynamoDB.put({
                 TableName: process.env.DYNAMODB_TABLE,
                 Item: item
             }).promise();
 
-            console.log(`Successfully saved issue ${message.issueKey} at timestamp ${currentTimestamp} to DynamoDB`);
+            console.log(`Successfully saved issue ${issueKey} to DynamoDB`);
         }
 
         return {
@@ -36,7 +47,11 @@ exports.handler = async (event) => {
             body: JSON.stringify({ message: 'Successfully processed messages' })
         };
     } catch (error) {
-        console.error('Error processing message:', error);
+        console.error('Error processing message:', {
+            error: error.message,
+            stack: error.stack,
+            event: JSON.stringify(event, null, 2)
+        });
         throw error;
     }
-}
+};
