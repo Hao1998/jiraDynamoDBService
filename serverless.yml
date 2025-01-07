@@ -3,6 +3,7 @@ service: critical-issues-processor
 provider:
   name: aws
   runtime: nodejs18.x
+  stage: ${opt:stage, 'dev'}
   environment:
     DYNAMODB_TABLE: critical-issues
   iamRoleStatements:
