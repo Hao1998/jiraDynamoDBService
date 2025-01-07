@@ -23,6 +23,9 @@ jobs:
       - name: Install Serverless Framework
         run: npm install -g serverless
 
+      - name: Serverless Authentication
+        run: serverless login --provider-auth-token ${{ secrets.SERVERLESS_ACCESS_TOKEN }}
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
