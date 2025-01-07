@@ -33,7 +33,7 @@ exports.handler = async (event) => {
 
             // Log the item before saving
             console.log('DynamoDB item to be saved:', item);
-            console.log('DynamoDB item to be savedTestttttttt:', item);
+            console.log('asdasdasdasdasdasdasdasdasde savedTestttttttt:', item);
             await dynamoDB.put({
                 TableName: process.env.DYNAMODB_TABLE,
                 Item: item
