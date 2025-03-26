@@ -56,19 +56,48 @@ jobs:
         run: serverless deploy
 
       # Option 1: Store in S3
-      - name: Upload to S3
+      - name: Upload to S3 with project and date organization
         run: |
-          aws s3 cp artifacts/${ARCHIVE_NAME} s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/lambda-archives/
-          aws s3 cp artifacts/${ARCHIVE_NAME%.zip}_metadata.txt s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/lambda-archives/
-        if: ${{ vars.LAMBDA_ARCHIVE_BUCKET != '' }}
+          # Get project name from repository
+          PROJECT_NAME=$(echo ${{ github.repository }} | cut -d '/' -f 2)
+
+          # Create date-based folder structure (project/YYYY/MM/DD)
+          YEAR_MONTH_DAY=$(date +"%Y/%m/%d")
+
+          # Create the full S3 path (without timestamp subfolder)
+          S3_PATH="lambda-archives/${PROJECT_NAME}/${YEAR_MONTH_DAY}/"
+
+          # Make sure filename includes timestamp for uniqueness
+          TIMESTAMP=$(date +"%H%M%S")
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          VERSION=$(node -p "require('./package.json').version" || echo "1.0.0")
+
+          # Create a unique filename with timestamp
+          UNIQUE_ARCHIVE_NAME="lambda_${TIMESTAMP}_${COMMIT_SHA}_v${VERSION}.zip"
+
+          # Zip with the new unique name
+          zip -r "artifacts/${UNIQUE_ARCHIVE_NAME}" . -x "node_modules/*" ".git/*" "artifacts/*"
+
+          # Create metadata file
+          echo "Deployment timestamp: $(date)" > "artifacts/${UNIQUE_ARCHIVE_NAME%.zip}_metadata.txt"
+          echo "Commit: ${COMMIT_SHA}" >> "artifacts/${UNIQUE_ARCHIVE_NAME%.zip}_metadata.txt"
+          echo "Version: ${VERSION}" >> "artifacts/${UNIQUE_ARCHIVE_NAME%.zip}_metadata.txt"
+          echo "Branch: ${{ github.ref_name }}" >> "artifacts/${UNIQUE_ARCHIVE_NAME%.zip}_metadata.txt"
+
+          # Upload with the structure below
+          aws s3 cp "artifacts/${UNIQUE_ARCHIVE_NAME}" "s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/${S3_PATH}${UNIQUE_ARCHIVE_NAME}"
+          aws s3 cp "artifacts/${UNIQUE_ARCHIVE_NAME%.zip}_metadata.txt" "s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/${S3_PATH}${UNIQUE_ARCHIVE_NAME%.zip}_metadata.txt"
+
+          # Log the location
+          echo "Archived Lambda deployment to: s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/${S3_PATH}${UNIQUE_ARCHIVE_NAME}"
 
       # Option 2: Store as GitHub artifact
-#      - name: Upload as GitHub artifact
-#        uses: actions/upload-artifact@v3
-#        with:
-#          name: lambda-deployment-${{ env.ARCHIVE_NAME }}
-#          path: artifacts/
-#          retention-days: 90  # Adjust retention as needed
+      #      - name: Upload as GitHub artifact
+      #        uses: actions/upload-artifact@v3
+      #        with:
+      #          name: lambda-deployment-${{ env.ARCHIVE_NAME }}
+      #          path: artifacts/
+      #          retention-days: 90  # Adjust retention as needed
 
       # Option 3: Create GitHub Release (for important deployments)
 #      - name: Create Release (for tagged deployments)
@@ -119,3 +148,6 @@ jobs:
 #
 #      - name: Deploy
 #        run: serverless deploy
+
+
+
