@@ -52,10 +52,7 @@ jobs:
           # Set output variable for later steps
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
 
-      - name: Deploy with Serverless Framework
-        run: serverless deploy
 
-      # Option 1: Store in S3
       - name: Upload to S3 with project and date organization
         run: |
           # Get project name from repository
@@ -65,7 +62,7 @@ jobs:
           YEAR_MONTH_DAY=$(date +"%Y/%m/%d")
 
           # Create the full S3 path (without timestamp subfolder)
-          S3_PATH="lambda-archives/${PROJECT_NAME}/${YEAR_MONTH_DAY}/"
+          S3_PATH="${PROJECT_NAME}/${YEAR_MONTH_DAY}/"
 
           # Make sure filename includes timestamp for uniqueness
           TIMESTAMP=$(date +"%H%M%S")
@@ -90,6 +87,9 @@ jobs:
 
           # Log the location
           echo "Archived Lambda deployment to: s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/${S3_PATH}${UNIQUE_ARCHIVE_NAME}"
+
+      - name: Deploy with Serverless Framework
+        run: serverless deploy
 
       # Option 2: Store as GitHub artifact
       #      - name: Upload as GitHub artifact
