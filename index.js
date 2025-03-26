@@ -8,7 +8,7 @@ exports.handler = async (event) => {
             // Single parse for SQS message
             const message = JSON.parse(record.body);
 
-            console.log('Parsed message:', message); // For debugging
+            console.log('Parsed message123213213:', message); // For debugging
 
             // Extract issue key from the content field
             // Assuming content format: "...Key: TEST-4\nSummary: test t6..."
