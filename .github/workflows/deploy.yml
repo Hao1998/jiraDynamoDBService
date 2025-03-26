@@ -1,4 +1,4 @@
-name: Deploy Lambda
+name: Deploy and Archive Lambda
 
 on:
   push:
@@ -30,5 +30,92 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1  # Change to your AWS region
 
-      - name: Deploy
+      - name: Create artifact directory
+        run: mkdir -p artifacts
+
+      - name: Package Lambda code with timestamp
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          VERSION=$(node -p "require('./package.json').version" || echo "1.0.0")
+          ARCHIVE_NAME="lambda_${TIMESTAMP}_${COMMIT_SHA}_v${VERSION}.zip"
+          
+          # Create a zip with the deployed code
+          zip -r "artifacts/${ARCHIVE_NAME}" . -x "node_modules/*" ".git/*" "artifacts/*"
+          
+          # Create metadata file with deployment info
+          echo "Deployment timestamp: ${TIMESTAMP}" > "artifacts/${ARCHIVE_NAME%.zip}_metadata.txt"
+          echo "Commit: ${COMMIT_SHA}" >> "artifacts/${ARCHIVE_NAME%.zip}_metadata.txt"
+          echo "Version: ${VERSION}" >> "artifacts/${ARCHIVE_NAME%.zip}_metadata.txt"
+          echo "Branch: main" >> "artifacts/${ARCHIVE_NAME%.zip}_metadata.txt"
+          
+          # Set output variable for later steps
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+
+      - name: Deploy with Serverless Framework
         run: serverless deploy
+
+      # Option 1: Store in S3
+      - name: Upload to S3
+        run: |
+          aws s3 cp artifacts/${ARCHIVE_NAME} s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/lambda-archives/
+          aws s3 cp artifacts/${ARCHIVE_NAME%.zip}_metadata.txt s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/lambda-archives/
+        if: ${{ vars.LAMBDA_ARCHIVE_BUCKET != '' }}
+
+      # Option 2: Store as GitHub artifact
+#      - name: Upload as GitHub artifact
+#        uses: actions/upload-artifact@v3
+#        with:
+#          name: lambda-deployment-${{ env.ARCHIVE_NAME }}
+#          path: artifacts/
+#          retention-days: 90  # Adjust retention as needed
+
+      # Option 3: Create GitHub Release (for important deployments)
+#      - name: Create Release (for tagged deployments)
+#        if: startsWith(github.ref, 'refs/tags/')
+#        uses: softprops/action-gh-release@v1
+#        with:
+#          files: |
+#            artifacts/${{ env.ARCHIVE_NAME }}
+#            artifacts/${{ env.ARCHIVE_NAME%.zip }}_metadata.txt
+#          body_path: artifacts/${{ env.ARCHIVE_NAME%.zip }}_metadata.txt
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+
+
+#name: Deploy Lambda
+#
+#on:
+#  push:
+#    branches:
+#      - main  # or 'main' depending on your default branch name
+#
+#jobs:
+#  deploy:
+#    name: deploy
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v3
+#
+#      - name: Use Node.js
+#        uses: actions/setup-node@v3
+#        with:
+#          node-version: '18'
+#
+#      - name: Install dependencies
+#        run: npm ci
+#
+#      - name: Install Serverless Framework
+#        run: npm install -g serverless@3.33.0
+#
+#      - name: Configure AWS Credentials
+#        uses: aws-actions/configure-aws-credentials@v2
+#        with:
+#          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#          aws-region: us-east-1  # Change to your AWS region
+#
+#      - name: Deploy
+#        run: serverless deploy
