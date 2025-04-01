@@ -1,5 +1,11 @@
 service: critical-issues-processor
 
+custom:
+  functionName: jira-dynamoDB-functions
+  layerName: jira-sns-dependencies
+
+
+
 provider:
   name: aws
   runtime: nodejs18.x

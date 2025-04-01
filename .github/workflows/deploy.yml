@@ -33,12 +33,18 @@ jobs:
       - name: Create artifact directory
         run: mkdir -p artifacts
 
-      - name: Extract function name and service name
+      - name: Extract variables from serverless.yml
         run: |
-          FUNCTION_NAME=$(grep -o 'functions:.*' serverless.yml | awk '{print $2}' | tr -d ':' || echo "myFunction")
-          SERVICE_NAME=$(grep -o 'service:.*' serverless.yml | awk '{print $2}' || echo "myService")
-          echo "FUNCTION_NAME=${FUNCTION_NAME}" >> $GITHUB_ENV
-          echo "SERVICE_NAME=${SERVICE_NAME}" >> $GITHUB_ENV
+            # Extract variables using grep and sed (built-in tools)
+            FUNCTION_NAME=$(grep -A 5 "custom:" serverless.yml | grep "functionName:" | sed 's/.*functionName:[[:space:]]*//' || echo "jira-dynamoDB-functions")
+            LAYER_NAME=$(grep -A 5 "custom:" serverless.yml | grep "layerName:" | sed 's/.*layerName:[[:space:]]*//' || echo "jira-sns-dependencies")
+            
+            echo "Using function name: ${FUNCTION_NAME}"
+            echo "Using layer name: ${LAYER_NAME}"
+            
+            # Set environment variables
+            echo "FUNCTION_NAME=${FUNCTION_NAME}" >> $GITHUB_ENV
+            echo "LAYER_NAME=${LAYER_NAME}" >> $GITHUB_ENV
 
       - name: Fetch existing layer ARN
         run: |
@@ -101,7 +107,7 @@ jobs:
           echo "Archived Lambda deployment to: s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/${S3_PATH}"
           
 
-      - name: Deploy Lambda function with AWS CLI (bypass CloudFormation)
+      - name: Deploy Lambda function with AWS CLI
         run: |
             # Update function code
             aws lambda update-function-code \
