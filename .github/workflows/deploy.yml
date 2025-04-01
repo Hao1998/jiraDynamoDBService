@@ -49,7 +49,7 @@ jobs:
            --output text)
 
           # Verify we got a valid ARN
-          if [[$EXISTING_LAYER_ARN == *"arn:aws:lambda"* ]]; then
+          if [[ "$EXISTING_LAYER_ARN" == *"arn:aws:lambda"* ]]; then
             echo "Found existing layer: ${EXISTING_LAYER_ARN}"
             echo "LAYER_VERSION_ARN=${EXISTING_LAYER_ARN}" >> $GITHUB_ENV
           else
