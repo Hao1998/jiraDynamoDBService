@@ -35,16 +35,16 @@ jobs:
 
       - name: Extract variables from serverless.yml
         run: |
-            # Extract variables using grep and sed (built-in tools)
-            FUNCTION_NAME=$(grep -A 5 "custom:" serverless.yml | grep "functionName:" | sed 's/.*functionName:[[:space:]]*//' || echo "jira-dynamoDB-functions")
-            LAYER_NAME=$(grep -A 5 "custom:" serverless.yml | grep "layerName:" | sed 's/.*layerName:[[:space:]]*//' || echo "jira-sns-dependencies")
-            
-            echo "Using function name: ${FUNCTION_NAME}"
-            echo "Using layer name: ${LAYER_NAME}"
-            
-            # Set environment variables
-            echo "FUNCTION_NAME=${FUNCTION_NAME}" >> $GITHUB_ENV
-            echo "LAYER_NAME=${LAYER_NAME}" >> $GITHUB_ENV
+          # Extract variables using grep and sed (built-in tools)
+          FUNCTION_NAME=$(grep -A 5 "custom:" serverless.yml | grep "functionName:" | sed 's/.*functionName:[[:space:]]*//' || echo "jira-dynamoDB-functions")
+          LAYER_NAME=$(grep -A 5 "custom:" serverless.yml | grep "layerName:" | sed 's/.*layerName:[[:space:]]*//' || echo "jira-sns-dependencies")
+          
+          echo "Using function name: ${FUNCTION_NAME}"
+          echo "Using layer name: ${LAYER_NAME}"
+          
+          # Set environment variables
+          echo "FUNCTION_NAME=${FUNCTION_NAME}" >> $GITHUB_ENV
+          echo "LAYER_NAME=${LAYER_NAME}" >> $GITHUB_ENV
 
       - name: Fetch existing layer ARN
         run: |
@@ -67,26 +67,26 @@ jobs:
 
       - name: Package Lambda code (without dependencies)
         run: |
-            # Create timestamp and version info for the package
-            TIMESTAMP=$(date +"%Y%m%d%H%M%S")
-            COMMIT_SHA=$(git rev-parse --short HEAD)
-            VERSION=$(node -p "require('./package.json').version" || echo "1.0.0")
-            
-            # Create a zip with just the Lambda code (excluding node_modules and other unnecessary files)
-            zip -r "artifacts/lambda-function_${TIMESTAMP}_${COMMIT_SHA}_v${VERSION}.zip" . -x "node_modules/*" ".git/*" "artifacts/*" ".serverless/*" "layer/*"
-            
-            # Create metadata file with deployment info
-            echo "Deployment timestamp: $(date)" > "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-            echo "Commit: ${COMMIT_SHA}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-            echo "Version: ${VERSION}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-            echo "Branch: ${{ github.ref_name }}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-            echo "Function name: ${FUNCTION_NAME}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-            echo "Service name: ${SERVICE_NAME}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-            echo "Using layer: ${LAYER_VERSION_ARN}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-            
-            # Set environment variable for later steps
-            echo "FUNCTION_ARCHIVE=lambda-function_${TIMESTAMP}_${COMMIT_SHA}_v${VERSION}.zip" >> $GITHUB_ENV
-            echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
+          # Create timestamp and version info for the package
+          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          VERSION=$(node -p "require('./package.json').version" || echo "1.0.0")
+          
+          # Create a zip with just the Lambda code (excluding node_modules and other unnecessary files)
+          zip -r "artifacts/lambda-function_${TIMESTAMP}_${COMMIT_SHA}_v${VERSION}.zip" . -x "node_modules/*" ".git/*" "artifacts/*" ".serverless/*" "layer/*"
+          
+          # Create metadata file with deployment info
+          echo "Deployment timestamp: $(date)" > "artifacts/deployment_${TIMESTAMP}_metadata.txt"
+          echo "Commit: ${COMMIT_SHA}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
+          echo "Version: ${VERSION}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
+          echo "Branch: ${{ github.ref_name }}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
+          echo "Function name: ${FUNCTION_NAME}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
+          echo "Service name: ${SERVICE_NAME}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
+          echo "Using layer: ${LAYER_VERSION_ARN}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
+          
+          # Set environment variable for later steps
+          echo "FUNCTION_ARCHIVE=lambda-function_${TIMESTAMP}_${COMMIT_SHA}_v${VERSION}.zip" >> $GITHUB_ENV
+          echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
 
       - name: Upload to S3 with project and date organization
         run: |
@@ -105,25 +105,33 @@ jobs:
           
           # Log the location
           echo "Archived Lambda deployment to: s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/${S3_PATH}"
-          
+
 
       - name: Deploy Lambda function with AWS CLI
         run: |
-            # Update function code
-            aws lambda update-function-code \
-              --function-name "${SERVICE_NAME}" \
-              --zip-file "fileb://artifacts/${FUNCTION_ARCHIVE}"
-            
-            # Wait for update to complete
-            aws lambda wait function-updated \
-              --function-name "${SERVICE_NAME}"
-            
-            # Update function configuration to use the layer
-            aws lambda update-function-configuration \
-              --function-name "${SERVICE_NAME}" \
-              --layers "${LAYER_VERSION_ARN}"
-            
-            echo "Successfully deployed Lambda function with the jira-sns-dependencies layer"
+          echo "Deploying to function: ${FUNCTION_NAME}"
+          
+          # The variable check confirms we have a valid function name
+          if [ -z "${FUNCTION_NAME}" ]; then
+            echo "ERROR: Function name is empty! Check variable extraction."
+            exit 1
+          fi
+          
+          # Update function code
+          aws lambda update-function-code \
+            --function-name "${FUNCTION_NAME}" \
+            --zip-file "fileb://artifacts/${FUNCTION_ARCHIVE}"
+          
+          # Wait for update to complete
+          aws lambda wait function-updated \
+            --function-name "${FUNCTION_NAME}"
+          
+          # Update function configuration to use the layer
+          aws lambda update-function-configuration \
+            --function-name "${FUNCTION_NAME}" \
+            --layers "${LAYER_VERSION_ARN}"
+          
+          echo "Successfully deployed Lambda function with the layer"
 
       # Option 2: Store as GitHub artifact
       #      - name: Upload as GitHub artifact
