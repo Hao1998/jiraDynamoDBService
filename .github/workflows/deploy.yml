@@ -111,16 +111,16 @@ jobs:
         run: |
             # Update function code
             aws lambda update-function-code \
-              --function-name "${SERVICE_NAME}-${FUNCTION_NAME}" \
+              --function-name "${SERVICE_NAME}" \
               --zip-file "fileb://artifacts/${FUNCTION_ARCHIVE}"
             
             # Wait for update to complete
             aws lambda wait function-updated \
-              --function-name "${SERVICE_NAME}-${FUNCTION_NAME}"
+              --function-name "${SERVICE_NAME}"
             
             # Update function configuration to use the layer
             aws lambda update-function-configuration \
-              --function-name "${SERVICE_NAME}-${FUNCTION_NAME}" \
+              --function-name "${SERVICE_NAME}" \
               --layers "${LAYER_VERSION_ARN}"
             
             echo "Successfully deployed Lambda function with the jira-sns-dependencies layer"
