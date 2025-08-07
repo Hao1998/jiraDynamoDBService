@@ -1,15 +1,29 @@
 {
-  "name": "lambda-dynamodb",
-  "version": "1.0.0",
+  "name": "critical-issues-processor",
+  "version": "2.0.0",
+  "description": "Optimized Lambda function for processing Jira critical issues",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "lint": "eslint .",
+    "deploy": "serverless deploy"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "aws-sdk": "^2.1692.0"
-  }
+    "@aws-sdk/client-dynamodb": "^3.484.0",
+    "@aws-sdk/lib-dynamodb": "^3.484.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^8.56.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "dynamodb",
+    "jira",
+    "serverless"
+  ]
 }
