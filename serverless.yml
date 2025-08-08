@@ -4,24 +4,99 @@ custom:
   functionName: jira-dynamoDB-functions
   layerName: jira-sns-dependencies
 
-
-
 provider:
   name: aws
   runtime: nodejs18.x
   stage: ${opt:stage, 'dev'}
+  region: us-east-1
+
   environment:
     DYNAMODB_TABLE: critical-issues
+    NODE_OPTIONS: '--enable-source-maps'
+
+  # Optimized IAM permissions - more specific and secure
   iamRoleStatements:
     - Effect: Allow
       Action:
         - dynamodb:PutItem
-      Resource: "arn:aws:dynamodb:us-east-1:637423205741:table/critical-issues"
+        - dynamodb:BatchWriteItem
+      Resource:
+        - "arn:aws:dynamodb:us-east-1:637423205741:table/critical-issues"
+
+    # CloudWatch Logs permissions (explicit for better security)
+    - Effect: Allow
+      Action:
+        - logs:CreateLogGroup
+        - logs:CreateLogStream
+        - logs:PutLogEvents
+      Resource:
+        - "arn:aws:logs:us-east-1:637423205741:log-group:/aws/lambda/${self:custom.functionName}:*"
 
 functions:
   processCriticalIssues:
-    name: jira-dynamoDB-functions
+    name: ${self:custom.functionName}
     handler: index.handler
+
+    # Performance optimizations
+    timeout: 300  # 5 minutes - adjust based on your batch size
+    memorySize: 512  # Increased from default 1024MB - adjust based on testing
+    reservedConcurrency: 10  # Prevent overwhelming DynamoDB
+
+    # Environment-specific settings
+    environment:
+      LOG_LEVEL: ${opt:log-level, 'info'}  # Can override with --log-level debug
+
     events:
       - sqs:
           arn: "arn:aws:sqs:us-east-1:637423205741:jira-critical-issues-queue"
+          batchSize: 10  # Process up to 10 messages per invocation
+          maximumBatchingWindowInSeconds: 5  # Wait up to 5 seconds to fill batch
+          functionResponseType: ReportBatchItemFailures  # Better error handling
+
+# Optional: Add monitoring
+resources:
+  Resources:
+    # CloudWatch Dashboard
+    ProcessorDashboard:
+      Type: AWS::CloudWatch::Dashboard
+      Properties:
+        DashboardName: jira-critical-issues-processor
+        DashboardBody: |
+          {
+            "widgets": [
+              {
+                "type": "metric",
+                "properties": {
+                  "metrics": [
+                    ["AWS/Lambda", "Duration", "FunctionName", "${self:custom.functionName}"],
+                    [".", "Errors", ".", "."],
+                    [".", "Throttles", ".", "."]
+                  ],
+                  "period": 300,
+                  "stat": "Average",
+                  "region": "us-east-1",
+                  "title": "Lambda Metrics"
+                }
+              }
+            ]
+          }
+
+    # CloudWatch Alarm for errors
+    ProcessorErrorAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: jira-processor-errors
+        AlarmDescription: Alert when Lambda function has errors
+        MetricName: Errors
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:custom.functionName}
+
+plugins:
+  - serverless-offline  # For local testing
