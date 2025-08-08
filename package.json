@@ -1,29 +1,20 @@
 {
-  "name": "critical-issues-processor",
-  "version": "2.0.0",
-  "description": "Optimized Lambda function for processing Jira critical issues",
+  "name": "jira-processor",
+  "version": "1.0.0",
+  "description": "Personal Jira issue processor",
   "main": "index.js",
   "scripts": {
-    "test": "jest",
-    "lint": "eslint .",
     "deploy": "serverless deploy"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.484.0",
-    "@aws-sdk/lib-dynamodb": "^3.484.0"
+    // EMPTY! aws-sdk is already in Lambda runtime
   },
   "devDependencies": {
-    "jest": "^29.7.0",
-    "eslint": "^8.56.0"
+    // Optional - only if you want local testing
+    // "serverless": "^3.38.0",
+    // "serverless-offline": "^13.3.0"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "keywords": [
-    "aws",
-    "lambda",
-    "dynamodb",
-    "jira",
-    "serverless"
-  ]
+  }
 }
