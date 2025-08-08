@@ -1,102 +1,140 @@
-service: critical-issues-processor
+service: jira-processor
 
+# Simplified - no stage variables needed for single environment
 custom:
-  functionName: jira-dynamoDB-functions
-  layerName: jira-sns-dependencies
+  # Fixed names for single prod environment
+  tableName: critical-issues
+  queueName: jira-critical-issues
+  functionName: jira-processor
 
 provider:
   name: aws
   runtime: nodejs18.x
-  stage: ${opt:stage, 'dev'}
+  stage: prod  # Fixed to prod
   region: us-east-1
 
   environment:
-    DYNAMODB_TABLE: critical-issues
-    NODE_OPTIONS: '--enable-source-maps'
+    NODE_ENV: production
+    DYNAMODB_TABLE: ${self:custom.tableName}
+    AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
 
-  # Optimized IAM permissions - more specific and secure
-  iamRoleStatements:
-    - Effect: Allow
-      Action:
-        - dynamodb:PutItem
-        - dynamodb:BatchWriteItem
-      Resource:
-        - "arn:aws:dynamodb:us-east-1:637423205741:table/critical-issues"
+  # Cost-optimized IAM (minimal permissions)
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:BatchWriteItem
+          Resource: !GetAtt CriticalIssuesTable.Arn
 
-    # CloudWatch Logs permissions (explicit for better security)
-    - Effect: Allow
-      Action:
-        - logs:CreateLogGroup
-        - logs:CreateLogStream
-        - logs:PutLogEvents
-      Resource:
-        - "arn:aws:logs:us-east-1:637423205741:log-group:/aws/lambda/${self:custom.functionName}:*"
+  # Optimize packaging to reduce Lambda size
+  package:
+    patterns:
+      - '!node_modules/aws-sdk/**'  # Already included in Lambda runtime
+      - '!tests/**'
+      - '!*.test.js'
+      - '!coverage/**'
+      - '!README.md'
+      - '!.git/**'
+      - '!.github/**'
 
 functions:
   processCriticalIssues:
     name: ${self:custom.functionName}
     handler: index.handler
 
-    # Performance optimizations
-    timeout: 300  # 5 minutes - adjust based on your batch size
-    memorySize: 512  # Increased from default 1024MB - adjust based on testing
-    reservedConcurrency: 10  # Prevent overwhelming DynamoDB
+    # Cost optimization settings
+    memorySize: 256        # Minimum for cost (128MB often too slow)
+    timeout: 60           # Shorter timeout = lower cost
+    reservedConcurrency: 5 # Prevent runaway costs
 
-    # Environment-specific settings
+    # Environment variables
     environment:
-      LOG_LEVEL: ${opt:log-level, 'info'}  # Can override with --log-level debug
+      LOG_LEVEL: WARN  # Reduce CloudWatch logs cost
 
     events:
       - sqs:
-          arn: "arn:aws:sqs:us-east-1:637423205741:jira-critical-issues-queue"
-          batchSize: 10  # Process up to 10 messages per invocation
-          maximumBatchingWindowInSeconds: 5  # Wait up to 5 seconds to fill batch
-          functionResponseType: ReportBatchItemFailures  # Better error handling
+          arn: !GetAtt CriticalIssuesQueue.Arn
+          batchSize: 10  # Process more per invocation = fewer invocations = lower cost
+          maximumBatchingWindow: 5
+          functionResponseType: ReportBatchItemFailures
 
-# Optional: Add monitoring
 resources:
   Resources:
-    # CloudWatch Dashboard
-    ProcessorDashboard:
-      Type: AWS::CloudWatch::Dashboard
+    # Cost-optimized DynamoDB
+    CriticalIssuesTable:
+      Type: AWS::DynamoDB::Table
       Properties:
-        DashboardName: jira-critical-issues-processor
-        DashboardBody: |
-          {
-            "widgets": [
-              {
-                "type": "metric",
-                "properties": {
-                  "metrics": [
-                    ["AWS/Lambda", "Duration", "FunctionName", "${self:custom.functionName}"],
-                    [".", "Errors", ".", "."],
-                    [".", "Throttles", ".", "."]
-                  ],
-                  "period": 300,
-                  "stat": "Average",
-                  "region": "us-east-1",
-                  "title": "Lambda Metrics"
-                }
-              }
-            ]
-          }
+        TableName: ${self:custom.tableName}
+        BillingMode: PAY_PER_REQUEST  # No fixed costs, pay only for usage
 
-    # CloudWatch Alarm for errors
+        AttributeDefinitions:
+          - AttributeName: issueId
+            AttributeType: S
+
+        KeySchema:
+          - AttributeName: issueId
+            KeyType: HASH
+
+        # Cost optimization: No GSI unless absolutely needed
+        # GlobalSecondaryIndexes: # Commented out to save costs
+
+        # Cost optimization: TTL for automatic cleanup
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+
+        Tags:
+          - Key: Project
+            Value: personal
+          - Key: Environment
+            Value: prod
+
+    # Cost-optimized SQS
+    CriticalIssuesQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.queueName}
+        VisibilityTimeoutSeconds: 360  # 6x Lambda timeout
+        MessageRetentionPeriod: 345600  # 4 days (shorter = lower cost)
+
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt CriticalIssuesDLQ.Arn
+          maxReceiveCount: 3
+
+    # Dead Letter Queue (essential for production)
+    CriticalIssuesDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:custom.queueName}-dlq
+        MessageRetentionPeriod: 345600  # 4 days
+
+    # Cost-optimized CloudWatch Logs (shorter retention)
+    ProcessorLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:custom.functionName}
+        RetentionInDays: 7  # Short retention = lower cost
+
+    # Essential alarm only (no dashboard to save costs)
     ProcessorErrorAlarm:
       Type: AWS::CloudWatch::Alarm
       Properties:
         AlarmName: jira-processor-errors
-        AlarmDescription: Alert when Lambda function has errors
+        AlarmDescription: "Lambda function errors"
         MetricName: Errors
         Namespace: AWS/Lambda
         Statistic: Sum
         Period: 300
         EvaluationPeriods: 1
-        Threshold: 1
+        Threshold: 5
         ComparisonOperator: GreaterThanOrEqualToThreshold
         Dimensions:
           - Name: FunctionName
             Value: ${self:custom.functionName}
 
-plugins:
-  - serverless-offline  # For local testing
+  Outputs:
+    QueueUrl:
+      Description: SQS Queue URL for sending messages
+      Value: !Ref CriticalIssuesQueue

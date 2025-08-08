@@ -1,195 +1,54 @@
-name: Deploy and Archive Lambda
+name: Deploy to Production
 
 on:
   push:
-    branches:
-      - main  # or 'main' depending on your default branch name
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
 
 jobs:
   deploy:
-    name: deploy
+    name: Deploy to Production
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Use Node.js
-        uses: actions/setup-node@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      # Skip tests and linting for cost savings (personal project)
+      # Uncomment if you want quality checks:
+      # - name: Install dev dependencies
+      #   run: npm ci
+      # - name: Run tests
+      #   run: npm test
+      # - name: Run linting
+      #   run: npm run lint
 
-      - name: Install Serverless Framework
-        run: npm install -g serverless@3.33.0
+      # Install only what's needed for deployment
+      - name: Install deployment dependencies
+        run: |
+          # Don't install anything - aws-sdk is in Lambda runtime
+          # npm ci --only=production  # Skip this line
+          npm install -g serverless@3.38.0
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1  # Change to your AWS region
+          aws-region: us-east-1
 
-      - name: Create artifact directory
-        run: mkdir -p artifacts
+      # Single command deployment - that's it!
+      - name: Deploy to Production
+        run: serverless deploy --verbose
 
-      - name: Extract variables from serverless.yml
+      # Optional: Quick smoke test
+      - name: Test deployment
         run: |
-          # Extract variables using grep and sed (built-in tools)
-          FUNCTION_NAME=$(grep -A 5 "custom:" serverless.yml | grep "functionName:" | sed 's/.*functionName:[[:space:]]*//' || echo "jira-dynamoDB-functions")
-          LAYER_NAME=$(grep -A 5 "custom:" serverless.yml | grep "layerName:" | sed 's/.*layerName:[[:space:]]*//' || echo "jira-sns-dependencies")
-          
-          echo "Using function name: ${FUNCTION_NAME}"
-          echo "Using layer name: ${LAYER_NAME}"
-          
-          # Set environment variables
-          echo "FUNCTION_NAME=${FUNCTION_NAME}" >> $GITHUB_ENV
-          echo "LAYER_NAME=${LAYER_NAME}" >> $GITHUB_ENV
-
-      - name: Fetch existing layer ARN
-        run: |
-          # Get the latest layer version ARN
-          EXISTING_LAYER_ARN=$(aws lambda list-layer-versions \
-           --layer-name "jira-sns-dependencies" \
-           --query 'LayerVersions[0].LayerVersionArn' \
-           --output text)
-
-          # Verify we got a valid ARN
-          if [[ "$EXISTING_LAYER_ARN" == *"arn:aws:lambda"* ]]; then
-            echo "Found existing layer: ${EXISTING_LAYER_ARN}"
-            echo "LAYER_VERSION_ARN=${EXISTING_LAYER_ARN}" >> $GITHUB_ENV
-          else
-            echo "ERROR: Could not find the jira-sns-dependencies layer!"
-            exit 1
-          fi
-
-
-
-      - name: Package Lambda code (without dependencies)
-        run: |
-          # Create timestamp and version info for the package
-          TIMESTAMP=$(date +"%Y%m%d%H%M%S")
-          COMMIT_SHA=$(git rev-parse --short HEAD)
-          VERSION=$(node -p "require('./package.json').version" || echo "1.0.0")
-          
-          # Create a zip with just the Lambda code (excluding node_modules and other unnecessary files)
-          zip -r "artifacts/lambda-function_${TIMESTAMP}_${COMMIT_SHA}_v${VERSION}.zip" . -x "node_modules/*" ".git/*" "artifacts/*" ".serverless/*" "layer/*"
-          
-          # Create metadata file with deployment info
-          echo "Deployment timestamp: $(date)" > "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-          echo "Commit: ${COMMIT_SHA}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-          echo "Version: ${VERSION}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-          echo "Branch: ${{ github.ref_name }}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-          echo "Function name: ${FUNCTION_NAME}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-          echo "Service name: ${SERVICE_NAME}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-          echo "Using layer: ${LAYER_VERSION_ARN}" >> "artifacts/deployment_${TIMESTAMP}_metadata.txt"
-          
-          # Set environment variable for later steps
-          echo "FUNCTION_ARCHIVE=lambda-function_${TIMESTAMP}_${COMMIT_SHA}_v${VERSION}.zip" >> $GITHUB_ENV
-          echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
-
-      - name: Upload to S3 with project and date organization
-        run: |
-          # Get project name from repository
-          PROJECT_NAME=$(echo ${{ github.repository }} | cut -d '/' -f 2)
-          
-          # Create date-based folder structure (project/YYYY/MM/DD)
-          YEAR_MONTH_DAY=$(date +"%Y/%m/%d")
-          
-          # Create the full S3 path
-          S3_PATH="${PROJECT_NAME}/${YEAR_MONTH_DAY}/"
-          
-          # Upload the archive and metadata
-          aws s3 cp "artifacts/${FUNCTION_ARCHIVE}" "s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/${S3_PATH}${FUNCTION_ARCHIVE}"
-          aws s3 cp "artifacts/deployment_${TIMESTAMP}_metadata.txt" "s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/${S3_PATH}deployment_${TIMESTAMP}_metadata.txt"
-          
-          # Log the location
-          echo "Archived Lambda deployment to: s3://${{ vars.LAMBDA_ARCHIVE_BUCKET }}/${S3_PATH}"
-
-
-      - name: Deploy Lambda function with AWS CLI
-        run: |
-          echo "Deploying to function: ${FUNCTION_NAME}"
-          
-          # The variable check confirms we have a valid function name
-          if [ -z "${FUNCTION_NAME}" ]; then
-            echo "ERROR: Function name is empty! Check variable extraction."
-            exit 1
-          fi
-          
-          # Update function code
-          aws lambda update-function-code \
-            --function-name "${FUNCTION_NAME}" \
-            --zip-file "fileb://artifacts/${FUNCTION_ARCHIVE}"
-          
-          # Wait for update to complete
-          aws lambda wait function-updated \
-            --function-name "${FUNCTION_NAME}"
-          
-          # Update function configuration to use the layer
-          aws lambda update-function-configuration \
-            --function-name "${FUNCTION_NAME}" \
-            --layers "${LAYER_VERSION_ARN}"
-          
-          echo "Successfully deployed Lambda function with the layer"
-
-      # Option 2: Store as GitHub artifact
-      #      - name: Upload as GitHub artifact
-      #        uses: actions/upload-artifact@v3
-      #        with:
-      #          name: lambda-deployment-${{ env.ARCHIVE_NAME }}
-      #          path: artifacts/
-      #          retention-days: 90  # Adjust retention as needed
-
-      # Option 3: Create GitHub Release (for important deployments)
-#      - name: Create Release (for tagged deployments)
-#        if: startsWith(github.ref, 'refs/tags/')
-#        uses: softprops/action-gh-release@v1
-#        with:
-#          files: |
-#            artifacts/${{ env.ARCHIVE_NAME }}
-#            artifacts/${{ env.ARCHIVE_NAME%.zip }}_metadata.txt
-#          body_path: artifacts/${{ env.ARCHIVE_NAME%.zip }}_metadata.txt
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-
-
-#name: Deploy Lambda
-#
-#on:
-#  push:
-#    branches:
-#      - main  # or 'main' depending on your default branch name
-#
-#jobs:
-#  deploy:
-#    name: deploy
-#    runs-on: ubuntu-latest
-#    steps:
-#      - uses: actions/checkout@v3
-#
-#      - name: Use Node.js
-#        uses: actions/setup-node@v3
-#        with:
-#          node-version: '18'
-#
-#      - name: Install dependencies
-#        run: npm ci
-#
-#      - name: Install Serverless Framework
-#        run: npm install -g serverless@3.33.0
-#
-#      - name: Configure AWS Credentials
-#        uses: aws-actions/configure-aws-credentials@v2
-#        with:
-#          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-#          aws-region: us-east-1  # Change to your AWS region
-#
-#      - name: Deploy
-#        run: serverless deploy
-
-
-
+          # Test the function exists
+          aws lambda get-function --function-name jira-processor >/dev/null
+          echo "✅ Deployment successful!"
