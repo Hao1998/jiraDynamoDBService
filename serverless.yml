@@ -28,16 +28,23 @@ provider:
             - dynamodb:BatchWriteItem
           Resource: !GetAtt CriticalIssuesTable.Arn
 
-  # Optimize packaging to reduce Lambda size
-  package:
-    patterns:
-      - '!node_modules/aws-sdk/**'  # Already included in Lambda runtime
-      - '!tests/**'
-      - '!*.test.js'
-      - '!coverage/**'
-      - '!README.md'
-      - '!.git/**'
-      - '!.github/**'
+  provider:
+    # ... existing config
+    deploymentBucket:
+      name: jira-processor-prod-serverlessdeploymentbucket  # Custom name
+      serverSideEncryption: AES256
+      blockPublicAccess: true
+
+# MOVED: Package configuration to top level (not under provider)
+package:
+  patterns:
+    - '!node_modules/aws-sdk/**'  # Already included in Lambda runtime
+    - '!tests/**'
+    - '!*.test.js'
+    - '!coverage/**'
+    - '!README.md'
+    - '!.git/**'
+    - '!.github/**'
 
 functions:
   processCriticalIssues:
@@ -76,9 +83,6 @@ resources:
         KeySchema:
           - AttributeName: issueId
             KeyType: HASH
-
-        # Cost optimization: No GSI unless absolutely needed
-        # GlobalSecondaryIndexes: # Commented out to save costs
 
         # Cost optimization: TTL for automatic cleanup
         TimeToLiveSpecification:
