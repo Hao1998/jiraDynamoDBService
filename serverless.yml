@@ -1,11 +1,8 @@
 service: jira-processor-v2
 
-# Framework version constraint
 frameworkVersion: ^3.38.0
 
-# Simplified - no stage variables needed for single environment
 custom:
-  # Fixed names for single prod environment
   tableName: critical-issues
   queueName: jira-critical-issues
   functionName: jira-processor-v2
@@ -13,7 +10,7 @@ custom:
 provider:
   name: aws
   runtime: nodejs18.x
-  stage: prod  # Fixed to prod
+  stage: prod
   region: us-east-1
 
   environment:
@@ -21,9 +18,9 @@ provider:
     DYNAMODB_TABLE: ${self:custom.tableName}
     AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
 
-  # REMOVED: deploymentBucket - let Serverless create it automatically
+  # Optional: Set log retention at provider level
+  logRetentionInDays: 7
 
-  # Cost-optimized IAM (minimal permissions)
   iam:
     role:
       statements:
@@ -33,10 +30,9 @@ provider:
             - dynamodb:BatchWriteItem
           Resource: !GetAtt CriticalIssuesTable.Arn
 
-# Package configuration at top level
 package:
   patterns:
-    - '!node_modules/aws-sdk/**'  # Already included in Lambda runtime
+    - '!node_modules/aws-sdk/**'
     - '!tests/**'
     - '!*.test.js'
     - '!coverage/**'
@@ -48,31 +44,27 @@ functions:
   processCriticalIssues:
     name: ${self:custom.functionName}
     handler: index.handler
+    memorySize: 256
+    timeout: 60
+    reservedConcurrency: 5
 
-    # Cost optimization settings
-    memorySize: 256        # Minimum for cost (128MB often too slow)
-    timeout: 60           # Shorter timeout = lower cost
-    reservedConcurrency: 5 # Prevent runaway costs
-
-    # Environment variables
     environment:
-      LOG_LEVEL: WARN  # Reduce CloudWatch logs cost
+      LOG_LEVEL: WARN
 
     events:
       - sqs:
           arn: !GetAtt CriticalIssuesQueue.Arn
-          batchSize: 10  # Process more per invocation = fewer invocations = lower cost
+          batchSize: 10
           maximumBatchingWindow: 5
           functionResponseType: ReportBatchItemFailures
 
 resources:
   Resources:
-    # Cost-optimized DynamoDB
     CriticalIssuesTable:
       Type: AWS::DynamoDB::Table
       Properties:
         TableName: ${self:custom.tableName}
-        BillingMode: PAY_PER_REQUEST  # No fixed costs, pay only for usage
+        BillingMode: PAY_PER_REQUEST
 
         AttributeDefinitions:
           - AttributeName: issueId
@@ -82,7 +74,6 @@ resources:
           - AttributeName: issueId
             KeyType: HASH
 
-        # Cost optimization: TTL for automatic cleanup
         TimeToLiveSpecification:
           AttributeName: ttl
           Enabled: true
@@ -93,37 +84,29 @@ resources:
           - Key: Environment
             Value: prod
 
-    # Cost-optimized SQS
     CriticalIssuesQueue:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: ${self:custom.queueName}
-        VisibilityTimeoutSeconds: 360  # 6x Lambda timeout
-        MessageRetentionPeriod: 345600  # 4 days (shorter = lower cost)
+        VisibilityTimeoutSeconds: 360
+        MessageRetentionPeriod: 345600
 
         RedrivePolicy:
           deadLetterTargetArn: !GetAtt CriticalIssuesDLQ.Arn
           maxReceiveCount: 3
 
-    # Dead Letter Queue (essential for production)
     CriticalIssuesDLQ:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: ${self:custom.queueName}-dlq
-        MessageRetentionPeriod: 345600  # 4 days
+        MessageRetentionPeriod: 345600
 
-    # Cost-optimized CloudWatch Logs (shorter retention)
-    ProcessorLogGroup:
-      Type: AWS::Logs::LogGroup
-      Properties:
-        LogGroupName: /aws/lambda/${self:custom.functionName}
-        RetentionInDays: 7  # Short retention = lower cost
+    # REMOVED: ProcessorLogGroup - let Lambda create it automatically
 
-    # Essential alarm only (no dashboard to save costs)
     ProcessorErrorAlarm:
       Type: AWS::CloudWatch::Alarm
       Properties:
-        AlarmName: jira-processor-errors
+        AlarmName: jira-processor-v2-errors
         AlarmDescription: "Lambda function errors"
         MetricName: Errors
         Namespace: AWS/Lambda
