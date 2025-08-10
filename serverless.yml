@@ -1,6 +1,6 @@
 service: jira-processor
 
-# Framework version constraint (fixes the warning)
+# Framework version constraint
 frameworkVersion: ^3.38.0
 
 # Simplified - no stage variables needed for single environment
@@ -21,10 +21,7 @@ provider:
     DYNAMODB_TABLE: ${self:custom.tableName}
     AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
 
-  deploymentBucket:
-    name: jira-processor-prod-deployment
-    serverSideEncryption: AES256
-    blockPublicAccess: true
+  # REMOVED: deploymentBucket - let Serverless create it automatically
 
   # Cost-optimized IAM (minimal permissions)
   iam:
