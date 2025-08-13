@@ -45,7 +45,7 @@ functions:
     handler: index.handler
     memorySize: 256
     timeout: 60
-    reservedConcurrency: 5
+    reservedConcurrency: 20
 
     environment:
       LOG_LEVEL: WARN
@@ -87,7 +87,7 @@ resources:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: ${self:custom.queueName}  # Will be jira-critical-issues-v2
-        VisibilityTimeoutSeconds: 360
+        VisibilityTimeout: 360
         MessageRetentionPeriod: 345600
 
         RedrivePolicy:
