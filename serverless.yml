@@ -3,8 +3,8 @@ service: jira-processor-v2
 frameworkVersion: ^3.38.0
 
 custom:
-  tableName: critical-issues
-  queueName: jira-critical-issues
+  tableName: critical-issues-v2     # ← CHANGED: unique table name
+  queueName: jira-critical-issues-v2  # ← CHANGED: unique queue name
   functionName: jira-processor-v2
 
 provider:
@@ -18,7 +18,6 @@ provider:
     DYNAMODB_TABLE: ${self:custom.tableName}
     AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
 
-  # Optional: Set log retention at provider level
   logRetentionInDays: 7
 
   iam:
@@ -63,7 +62,7 @@ resources:
     CriticalIssuesTable:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: ${self:custom.tableName}
+        TableName: ${self:custom.tableName}  # Will be critical-issues-v2
         BillingMode: PAY_PER_REQUEST
 
         AttributeDefinitions:
@@ -87,7 +86,7 @@ resources:
     CriticalIssuesQueue:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: ${self:custom.queueName}
+        QueueName: ${self:custom.queueName}  # Will be jira-critical-issues-v2
         VisibilityTimeoutSeconds: 360
         MessageRetentionPeriod: 345600
 
@@ -98,10 +97,8 @@ resources:
     CriticalIssuesDLQ:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: ${self:custom.queueName}-dlq
+        QueueName: ${self:custom.queueName}-dlq  # Will be jira-critical-issues-v2-dlq
         MessageRetentionPeriod: 345600
-
-    # REMOVED: ProcessorLogGroup - let Lambda create it automatically
 
     ProcessorErrorAlarm:
       Type: AWS::CloudWatch::Alarm
@@ -123,3 +120,6 @@ resources:
     QueueUrl:
       Description: SQS Queue URL for sending messages
       Value: !Ref CriticalIssuesQueue
+    TableName:
+      Description: DynamoDB Table Name
+      Value: !Ref CriticalIssuesTable
