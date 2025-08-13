@@ -50,5 +50,5 @@ jobs:
       - name: Test deployment
         run: |
           # Test the function exists
-          aws lambda get-function --function-name jira-processor >/dev/null
+          aws lambda get-function --function-name jira-processor-v2 >/dev/null
           echo "✅ Deployment successful!"
